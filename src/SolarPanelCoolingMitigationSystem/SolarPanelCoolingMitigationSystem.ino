@@ -51,7 +51,7 @@ unsigned long pumping_start_time = 0;
 bool isPumping = false;
 
 ZMPT101B voltageSensor(13);
-ACS712 currentSensor(ACS712_20A, 12);
+ACS712 currentSensor(ACS712_30A, 12);
 
 float power=0;
 float voltage=0;
