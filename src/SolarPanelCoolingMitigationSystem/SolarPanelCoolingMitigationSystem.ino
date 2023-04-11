@@ -1,331 +1,230 @@
-#include <WiFi.h>
-#include <WebServer.h>
-#include <DHT.h>
+#include <ESP8266WiFi.h>
+#include <ESPAsyncTCP.h>
+#include <ESPAsyncWebServer.h>
 
-#include "ZMPT101B.h"
-#include "ACS712.h"
+// Replace with your network credentials
+const char* ssid = "Cooling Mitigation System";
+const char* password = "12345678";
 
-/* Put your SSID & Password */
-const char* ssid = "Cooling Mitigation";  // Enter SSID here
-const char* password = "12345678";  //Enter Password here
+bool waterPumpState = 0;
+const int waterPumpPin = 2;
 
 /* Put IP Address details */
 IPAddress local_ip(192,168,1,1);
 IPAddress gateway(192,168,1,1);
 IPAddress subnet(255,255,255,0);
 
-WebServer server(80);
+// Create AsyncWebServer object on port 80
+AsyncWebServer server(80);
+AsyncWebSocket ws("/ws");
 
-#define DHTTYPE DHT11
-const int DHT1_PIN = 27;
-const int DHT2_PIN = 26;
-const int DHT3_PIN = 25;
-const int DHT4_PIN = 33;
+const char index_html[] PROGMEM = R"rawliteral(
+<!DOCTYPE HTML>
+<html>
+<head>
+  <title>Solar Panel Dashboard</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <style>
+  html {
+    font-family: Arial, Helvetica, sans-serif;
+    text-align: center;
+  }
+  h1 {
+    font-size: 1.8rem;
+    color: white;
+  }
+  h2{
+    font-size: 1.5rem;
+    font-weight: bold;
+    color: #143642;
+  }
+  .topnav {
+    overflow: hidden;
+    background-color: #143642;
+  }
+  body {
+    margin: 0;
+  }
+  .content {
+    padding: 30px;
+    max-width: 600px;
+    margin: 0 auto;
+  }
+  .card {
+    background-color: #F8F7F9;;
+    box-shadow: 2px 2px 12px 1px rgba(140,140,140,.5);
+    padding: 10px;
+    margin: 10px;
+  }
+  .button {
+    padding: 10px 15px;
+    font-size: 16px;
+    text-align: center;
+    outline: none;
+    color: #fff;
+    background-color: #0f8b8d;
+    border: none;
+    border-radius: 5px;
+    -webkit-touch-callout: none;
+    -webkit-user-select: none;
+    -khtml-user-select: none;
+    -moz-user-select: none;
+    -ms-user-select: none;
+    user-select: none;
+    -webkit-tap-highlight-color: rgba(0,0,0,0);
+   }
+   /*.button:hover {background-color: #0f8b8d}*/
+   .button:active {
+     background-color: #0f8b8d;
+     box-shadow: 2 2px #CDCDCD;
+     transform: translateY(2px);
+   }
+   .state {
+     font-size: 1.5rem;
+     color:#8c8c8c;
+     font-weight: bold;
+   }
+  </style>
+<title>Solar Panel Web Server</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="icon" href="data:,">
+</head>
+<body>
+  <div class="topnav">
+    <h1>Solar Panel Dashboard</h1>
+  </div>
+  <div class="content">
+    <div class="card">
+      <h2>DHT</h2>
+    </div>
 
-const int PUMP_PIN = 14;
-bool pumpStatus = HIGH;
+    <div class="card">
+      <h2>Power Output</h2>
+    </div>
 
-DHT dht1(DHT1_PIN, DHTTYPE);
-DHT dht2(DHT2_PIN, DHTTYPE);
-DHT dht3(DHT3_PIN, DHTTYPE);
-DHT dht4(DHT4_PIN, DHTTYPE);
+    <div class="card">
+      <h2>Water Pump</h2>
+      <p class="state">state: <span id="state">%STATE%</span></p>
+      <p><button id="button" class="button">Toggle</button></p>
+    </div>
+  </div>
+<script>
+  var gateway = `ws://${window.location.hostname}/ws`;
+  var websocket;
+  window.addEventListener('load', onLoad);
+  function initWebSocket() {
+    console.log('Trying to open a WebSocket connection...');
+    websocket = new WebSocket(gateway);
+    websocket.onopen    = onOpen;
+    websocket.onclose   = onClose;
+    websocket.onmessage = onMessage; // <-- add this line
+  }
+  function onOpen(event) {
+    console.log('Connection opened');
+  }
+  function onClose(event) {
+    console.log('Connection closed');
+    setTimeout(initWebSocket, 2000);
+  }
+  function onMessage(event) {
+    var state;
+    if (event.data == "1"){
+      state = "ON";
+    }
+    else{
+      state = "OFF";
+    }
+    document.getElementById('state').innerHTML = state;
+  }
+  function onLoad(event) {
+    initWebSocket();
+    initButton();
+  }
+  function initButton() {
+    document.getElementById('button').addEventListener('click', toggle);
+  }
+  function toggle(){
+    websocket.send('toggle');
+  }
+</script>
+</body>
+</html>
+)rawliteral";
 
-unsigned long previousMillis = 0;
-const long interval = 2000;
+void notifyClients() {
+  ws.textAll(String(waterPumpState));
+}
 
-float t1 = 0.0;
-float h1 = 0.0;
-float t2 = 0.0;
-float h2 = 0.0;
-float t3 = 0.0;
-float h3 = 0.0;
-float t4 = 0.0;
-float h4 = 0.0;
+void handleWebSocketMessage(void *arg, uint8_t *data, size_t len) {
+  AwsFrameInfo *info = (AwsFrameInfo*)arg;
+  if (info->final && info->index == 0 && info->len == len && info->opcode == WS_TEXT) {
+    data[len] = 0;
+    if (strcmp((char*)data, "toggle") == 0) {
+      waterPumpState = !waterPumpState;
+      notifyClients();
+    }
+  }
+}
 
-float average_temperature = 0.0;
+void onEvent(AsyncWebSocket *server, AsyncWebSocketClient *client, AwsEventType type,
+             void *arg, uint8_t *data, size_t len) {
+    switch (type) {
+      case WS_EVT_CONNECT:
+        Serial.printf("WebSocket client #%u connected from %s\n", client->id(), client->remoteIP().toString().c_str());
+        break;
+      case WS_EVT_DISCONNECT:
+        Serial.printf("WebSocket client #%u disconnected\n", client->id());
+        break;
+      case WS_EVT_DATA:
+        handleWebSocketMessage(arg, data, len);
+        break;
+      case WS_EVT_PONG:
+      case WS_EVT_ERROR:
+        break;
+  }
+}
 
-const float TEMP_THRESHOLD = 30.0; // in degree celsius
-const int PUMPING_DURATION = 10; // in seconds
+void initWebSocket() {
+  ws.onEvent(onEvent);
+  server.addHandler(&ws);
+}
 
-unsigned long pumping_start_time = 0;
-bool isPumping = false;
+String processor(const String& var){
+  Serial.println(var);
+  if(var == "STATE"){
+    if (waterPumpState){
+      return "ON";
+    }
+    else{
+      return "OFF";
+    }
+  }
+  return String();
+}
 
-ZMPT101B voltageSensor(13);
-ACS712 currentSensor(ACS712_30A, 12);
+void setup(){
+  // Serial port for debugging purposes
+  Serial.begin(115200);
 
-float power=0;
-float voltage=0;
-float current=0;
+  pinMode(waterPumpPin, OUTPUT);
+  digitalWrite(waterPumpPin, LOW);
+  
+  WiFi.softAP(ssid, password);
+  WiFi.softAPConfig(local_ip, gateway, subnet);
+  delay(100);
 
-void setup() {
-    Serial.begin(115200);
-    pinMode(PUMP_PIN, OUTPUT);
-    pinMode(DHT1_PIN, INPUT);
-    pinMode(DHT2_PIN, INPUT);
+  initWebSocket();
 
-    WiFi.softAP(ssid, password);
-    WiFi.softAPConfig(local_ip, gateway, subnet);
-    delay(100);
-    
-    server.on("/", handle_OnConnect);
-    server.on("/pumpOn", handlePumpOn);
-    server.on("/pumpOff", handlePumpOff);
-    server.onNotFound(handle_NotFound);
-    
-    server.begin();
-    Serial.println("HTTP server started");
+  // Route for root / web page
+  server.on("/", HTTP_GET, [](AsyncWebServerRequest *request){
+    request->send_P(200, "text/html", index_html, processor);
+  });
 
-    dht1.begin();
-    dht2.begin();
-    dht3.begin();
-    dht4.begin();
-
-    digitalWrite(PUMP_PIN, HIGH);
-
-    delay(100);
-    voltageSensor.setSensitivity(0.0025);
-    voltageSensor.setZeroPoint(2621);
-    
-    currentSensor.setZeroPoint(2943);
-    currentSensor.setSensitivity(0.15);
-
-    // Caliberation Command Need To Be Run On First Upload.  
-    // Calibrate();
+  // Start server
+  server.begin();
 }
 
 void loop() {
-    server.handleClient();
-
-    readDHT();
-    readPower();
-
-    average_temperature = (t1 + t2 + t3 + t4) / 4;
-
-    if (millis() - previousMillis > interval) {
-        Serial.print("Temp1: ");
-        Serial.print(t1);
-        Serial.print(" Humid1: ");
-        Serial.println(h1);
-
-        Serial.print("Temp2: ");
-        Serial.println(t2);
-        Serial.print(" Humid2: ");
-        Serial.println(h2);
-
-        Serial.print("Temp3: ");
-        Serial.println(t3);
-        Serial.print(" Humid3: ");
-        Serial.println(h3);
-
-        Serial.print("Temp4: ");
-        Serial.println(t4);
-        Serial.print(" Humid4: ");
-        Serial.println(h4);
-
-        Serial.print("Voltage: ");
-        Serial.println(voltage);
-        Serial.print(" Current: ");
-        Serial.print(current);
-        Serial.print(" Power: ");
-        Serial.println(power);
-
-        Serial.print("Is pumping: ");
-        Serial.println(isPumping);
-
-        Serial.print("Average Temp: ");
-        Serial.println(average_temperature);
-
-        Serial.print("Pumping start time: ");
-        Serial.println(pumping_start_time);  
-        Serial.println("- - - - - -");
-
-        previousMillis = millis();
-    }
-
-    analyzeCoolingMitigation();  
-
-    if (pumpStatus) digitalWrite(PUMP_PIN, LOW);
-    else digitalWrite(PUMP_PIN, HIGH);
-}
-
-void analyzeCoolingMitigation() {
-    unsigned long current_pumping_time = millis();
-
-    if (isPumping && current_pumping_time - pumping_start_time >= (PUMPING_DURATION * 1000)) {  
-        digitalWrite(PUMP_PIN, HIGH);
-        isPumping = false;
-    }
-    
-    if (average_temperature > TEMP_THRESHOLD && !isPumping) {
-        digitalWrite(PUMP_PIN, LOW);
-        isPumping = true;
-        pumping_start_time = millis();
-    }
-}
-
-void handle_OnConnect() {
-    pumpStatus = LOW;
-    Serial.println("Pump Status: OFF");
-    server.send(200, "text/html", SendHTML()); 
-}
-
-void handlePumpOn() {
-    pumpStatus = LOW;
-    Serial.println("Pump Status: ON");
-    server.send(200, "text/html", SendHTML()); 
-}
-
-void handlePumpOff() {
-    pumpStatus = HIGH;
-    Serial.println("Pump Status: OFF");
-    server.send(200, "text/html", SendHTML()); 
-}
-
-void handle_NotFound(){
-    server.send(404, "text/plain", "Not found");
-}
-
-String SendHTML(){
-    String ptr = "<!DOCTYPE html> <html>\n";
-    ptr +="<head><meta name=\"viewport\" content=\"width=device-width, initial-scale=1.0, user-scalable=no\">\n";
-    ptr +="<title>LED Control</title>\n";
-    ptr +="<style>html { font-family: Helvetica; display: inline-block; margin: 0px auto; text-align: center;}\n";
-    ptr +="body{margin-top: 50px;} h1 {color: #444444;margin: 50px auto 30px;} h3 {color: #444444;margin-bottom: 50px;}\n";
-    ptr +=".button {display: block;width: 80px;background-color: #1abc9c;border: none;color: white;padding: 13px 20px;text-decoration: none;font-size: 18px;margin: 0px auto 35px;cursor: pointer;border-radius: 4px;}\n";
-    ptr +=".button-on {background-color: #1abc9c;}\n";
-    ptr +=".button-on:active {background-color: #16a085;}\n";
-    ptr +=".button-off {background-color: #34495e;}\n";
-    ptr +=".button-off:active {background-color: #2c3e50;}\n";
-    ptr +="p {font-size: 14px;color: #888;margin-bottom: 10px;}\n";
-    ptr += ".styled-table{border-collapse:collapse; border-radius: 4px; margin-left: auto; margin-right: auto; margin-bottom: 10px; font-size: 0.9em; font-family: sans-serif; min-width: 350px; box-shadow: 0 0 20px rgba(0,0,0,0.15);}";
-    ptr += ".styled-table thead tr{ background-color: #009879; color: #ffffff; text-align: center; }";
-    ptr += ".styled-table th, .styled-table td{ padding: 12px 15px; }";
-    ptr += ".styled-table tbody tr { border-bottom: 1px solid #dddddd; }";
-    ptr += ".styled-table tbody tr:nth-of-type(even) { background-color: #f3f3f3; }";
-    ptr += ".styled-table tbody tr:last-of-type { border-bottom: 2px solid #009879; }";
-    ptr +="</style>\n";
-    ptr +="</head>\n";
-    ptr +="<body>\n";
-    ptr +="<h1>Solar Panel Cooling Mitigation System</h1>\n";
-    ptr +="<h3>Web Server</h3>\n";
-
-    // Temparature Table
-    ptr += "<table class=\"styled-table\"><thead><tr><th>DHT</th><th>Temperature</th><th>Humidity</th></tr></thead>"; 
-    ptr += "<tbody>";
-
-    ptr += "<tr><td>1</td><td>";  // dht1
-    ptr += t1;
-    ptr += " *C</td><td>";
-    ptr += h1;
-    ptr += " %</td></tr>";
-
-    ptr += "<tr><td>2</td><td>"; // dht2 
-    ptr += t2;
-    ptr += " *C</td><td>";
-    ptr += h2;
-    ptr += " %</td></tr>";
-
-    ptr += "<tr><td>3</td><td>"; // dht3 
-    ptr += t3;
-    ptr += " *C</td><td>";
-    ptr += h3;
-    ptr += " %</td></tr>";
-
-    ptr += "<tr><td>4</td><td>"; // dht4 
-    ptr += t4;
-    ptr += " *C</td><td>";
-    ptr += h4;
-    ptr += " %</td></tr>";
-
-    ptr += "<tbody></table>";
-
-    // Power Table
-    ptr += "<table class=\"styled-table\"><thead><tr><th>Voltage</th><th>Current</th><th>Power</th></tr></thead>"; 
-    ptr += "<tbody>";
-    ptr += "<tr><td>";
-    ptr += voltage;
-    ptr += " V</td><td>";
-    ptr += current;
-    ptr += "</td><td>";
-    ptr += power;
-    ptr += " W</td></tr>";
-    ptr += "<tbody></table>";
-
-    // Pump Button
-    if (!pumpStatus) ptr +="<p>Water Pump Status: ON</p><a class=\"button button-off\" href=\"/pumpOff\">OFF</a>\n";
-    else ptr +="<p>Water Pump Status: OFF</p><a class=\"button button-on\" href=\"/pumpOn\">ON</a>\n";
-
-    ptr +="</body>\n";
-    ptr +="</html>\n";
-
-    return ptr;
-}
-
-void readDHT() {
-    if (millis() - previousMillis >= interval) {
-        // save the last time you updated the DHT values
-        previousMillis = millis();
-        
-        // * Read temperature as Celsius (the default)
-        float newT1 = dht1.readTemperature();
-        float newT2 = dht2.readTemperature();
-        float newT3 = dht3.readTemperature();
-        float newT4 = dht4.readTemperature();
-
-        // if temperature read failed, don't change t value
-        if (isnan(newT1)) Serial.println("Failed to read from DHT sensor 1!");
-        else t1 = newT1;
-        
-        if (isnan(newT2)) Serial.println("Failed to read from DHT sensor 2!");
-        else t2 = newT2;
-
-        if (isnan(newT3)) Serial.println("Failed to read from DHT sensor 3!");
-        else t3 = newT3;
-
-        if (isnan(newT4)) Serial.println("Failed to read from DHT sensor 4!");
-        else t4 = newT4;
-
-        // * Read Humidity
-        float newH1 = dht1.readHumidity();
-        float newH2 = dht2.readHumidity();
-        float newH3 = dht3.readHumidity();
-        float newH4 = dht4.readHumidity();
-        
-        // if humidity read failed, don't change h value 
-        if (isnan(newH1)) Serial.println("Failed to read humidity from DHT sensor 1!");
-        else h1 = newH1;
-
-        if (isnan(newH2)) Serial.println("Failed to read humidity from DHT sensor 2!");
-        else h2 = newH2;
-
-        if (isnan(newH3)) Serial.println("Failed to read humidity from DHT sensor 3!");
-        else h3 = newH3;
-
-        if (isnan(newH4)) Serial.println("Failed to read humidity from DHT sensor 4!");
-        else h4 = newH4;
-    }
-}
-
-void Calibrate() {
-    while (1) {
-        voltageSensor.calibrate();  
-        Serial.print("Voltage Zero Point: ");
-        Serial.println(voltageSensor.getZeroPoint());
-
-        currentSensor.calibrate();  
-        Serial.print("Current Zero Point:");
-        Serial.println(currentSensor.getZeroPoint());
-
-        delay(500);
-    }
-}
-
-void readPower() {
-    voltage = voltageSensor.getVoltageAC();
-    if(voltage<55) voltage=0;
-  
-    current = currentSensor.getCurrentAC();
-    if(current<0.15) current=0;
-
-    power = voltage * current;
+  ws.cleanupClients();
+  digitalWrite(waterPumpPin, waterPumpState);
 }
