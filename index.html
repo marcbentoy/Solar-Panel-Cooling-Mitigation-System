@@ -1,0 +1,208 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta http-equiv="X-UA-Compatible" content="IE=edge">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Test Document</title>
+    <style>
+        html, body {
+            font-family: Arial, Helvetica, sans-serif;
+            text-align: center;
+            margin: 0;
+            line-height: 50%;
+            width: auto;
+            height: auto;
+        }
+        h1 {
+            font-size: 1.8rem;
+            line-height: normal;
+            color: white;
+        }
+        h2{
+            font-size: 1.3rem;
+            font-weight: bold;
+            color: #143642;
+        }
+        .styled-table {
+            border-collapse:collapse;
+            border-radius: 4px;
+            margin-left: auto;
+            margin-right: auto;
+            margin-bottom: 10px;
+            font-size: 0.9em;
+            font-family: sans-serif;
+            min-width: 300px;
+            max-width: 600px;
+            box-shadow: 0 0 20px rgba(0,0,0,0.15);
+            width: 100%;
+        }
+        .styled-table thead tr { 
+            background-color: #009879;
+            color: #ffffff;
+            text-align: center;
+        }
+        .styled-table th, .styled-table td { 
+            padding: 12px 15px; 
+        }
+        .styled-table tbody tr { 
+            border-bottom: 1px solid #dddddd; 
+        }
+        .styled-table tbody tr:nth-of-type(even) { 
+            background-color: #f3f3f3; 
+        }
+        .styled-table tbody tr:last-of-type { 
+            border-bottom: 2px solid #009879; 
+        }
+        .topnav {
+            overflow: hidden;
+            background-color: #143642;
+        }
+        .content {
+            padding: 30px;
+            min-width: 300px;
+            max-width: 600px;
+            margin: 0 auto;
+        }
+        .card {
+            background-color: #F8F7F9;;
+            box-shadow: 2px 2px 12px 1px rgba(140,140,140,.5);
+            padding: 10px;
+            margin: 10px;
+        }
+        .button {
+            padding: 10px 15px;
+            font-size: 16px;
+            text-align: center;
+            outline: none;
+            color: #fff;
+            background-color: #0f8b8d;
+            border: none;
+            border-radius: 5px;
+            -webkit-touch-callout: none;
+            -webkit-user-select: none;
+            -khtml-user-select: none;
+            -moz-user-select: none;
+            -ms-user-select: none;
+            user-select: none;
+            -webkit-tap-highlight-color: rgba(0,0,0,0);
+        }
+        /*.button:hover {background-color: #0f8b8d}*/
+        .button:active {
+            background-color: #0f8b8d;
+            box-shadow: 2 2px #CDCDCD;
+            transform: translateY(2px);
+        }
+        .state {
+            font-size: 1.3rem;
+            color:#8c8c8c;
+            font-weight: bold;
+        }
+    </style>
+</head>
+<body>
+    <div class="topnav">
+		<h1>Solar Panel Dashboard</h1>
+	</div>
+
+	<div class="content">
+        <table class="styled-table">
+            <thead>
+                <tr>
+                    <th>DHT</th>
+                    <th>Temperature</th>
+                    <th>Humidity</th>
+                </tr>
+            </thead>
+            <tbody>
+                <tr>
+                    <td>1</td>
+                    <td>%TEMP1% &#8451</td>
+                    <td>%HUMID1% &#37</td>
+                </tr>
+                <tr>
+                    <td>2</td>
+                    <td>%TEMP2% &#8451</td>
+                    <td>%HUMID2% &#37</td>
+                </tr>
+                <tr>
+                    <td>3</td>
+                    <td>%TEMP3% &#8451</td>
+                    <td>%HUMID3% &#37</td>
+                </tr>
+            </tbody>
+        </table>
+
+        <table class="styled-table">
+            <thead>
+                <tr>
+                    <th>Avg. Temp</th>
+                    <th>Avg. Humid</th>
+                </tr>
+            </thead>
+            <tbody>
+                <tr>
+                    <td>%AVG_TEMP% &#8451</td>
+                    <td>%AVG_HUMID% &#37</td>
+                </tr>
+            </tbody>
+        </table>
+
+        <table class="styled-table">
+            <thead>
+                <tr>
+                    <th>Voltage</th>
+                    <th>Current</th>
+                    <th>Power</th>
+                </tr>
+            </thead>
+            <tbody>
+                <tr>
+                    <td>%VOLTAGE% V</td>
+                    <td>%CURRENT% A</td>
+                    <td>%POWER% W</td>
+                </tr>
+            </tbody>
+        </table>
+
+		<div class="card">
+			<p class="state">state: <span id="state">%STATE%</span></p>
+			<p>Water Pump</p>
+			<p><button id="button" class="button">Toggle</button></p>
+		</div>
+
+        <div class="card">
+			<p class="state">Testing State: <span id="state">%TEST_STATE%</span></p>
+            <p><span id="test_temperature">%TEST_TEMPERATURE%</span> &#8451</p>
+            <div class="range-slider">
+                <input type="range" id="test_temperature_range" class="range-slier__range" value="30" min="0" max="100">
+            </div>
+            <p><span id="test_humidity">%TEST_HUMIDITY%</span> &#37</p>
+            <div class="range-slider">
+                <input type="range" id="test_humidity_range" class="range-slier__range" value="30" min="0" max="100">
+            </div>
+			<p><button id="button" class="button">Toggle</button></p>
+		</div>
+	</div>
+
+    <script>
+        window.addEventListener('load', onload);
+
+        function onload(event) {
+            initSlider();
+        }
+        function initSlider() {
+            document.getElementById('test_temperature_range').addEventListener('input', testTempRangeValue);
+            document.getElementById('test_humidity_range').addEventListener('input', testHumidRangeValue);
+        }
+        function testTempRangeValue() {
+            var testTempValue = document.getElementById('test_temperature_range').value;
+            var target = document.getElementById('test_temperature').innerHTML = testTempValue;
+        }
+        function testHumidRangeValue() {
+            var testTempValue = document.getElementById('test_humidity_range').value;
+            var target = document.getElementById('test_humidity').innerHTML = testTempValue;
+        }
+    </script>
+</body>
+</html>
