@@ -206,23 +206,6 @@ const char index_html[] PROGMEM = R"rawliteral(
             </tbody>
         </table>
 
-        <table class="styled-table">
-            <thead>
-                <tr>
-                    <th>Voltage</th>
-                    <th>Current</th>
-                    <th>Power</th>
-                </tr>
-            </thead>
-            <tbody>
-                <tr>
-                    <td><span id="voltage">%VOLTAGE%</span> V</td>
-                    <td><span id="current">%CURRENT%</span> A</td>
-                    <td><span id="power">%POWER%</span> W</td>
-                </tr>
-            </tbody>
-        </table>
-
 		<div class="card">
 			<p class="state">state: <span id="pump_state">%PUMP_STATE%</span></p>
 			<p>Water Pump</p>
@@ -316,10 +299,6 @@ const char index_html[] PROGMEM = R"rawliteral(
 
 		document.getElementById("avg_temp").innerHTML = averageTemp;
 		document.getElementById("avg_humid").innerHTML = averageHumid;
-
-  		document.getElementById("voltage").innerHTML = Math.ceil(obj.voltage * 100) / 100;
-		document.getElementById("current").innerHTML = Math.ceil(obj.current * 100) / 100;
-		document.getElementById("power").innerHTML = power;
 	}
 	</script>
 	</body>
@@ -358,7 +337,6 @@ void loop() {
 
 	if (millis() - previous_time_reading >= READING_INTERVAL) {
 		readTemperature();
-		readPower();
 		broadcastData();
 
 		previous_time_reading = millis();
@@ -402,45 +380,6 @@ void readTemperature() {
 	average_humidity = (h1 + h2 + h3) / 3;
 }
 
-void readPower() {
-	int convertedTemperature = (int)average_temperature;
-
-	if (convertedTemperature == 0) {
-		voltage = 0;
-		current = 0;
-		power = 0;
-		return;
-	}
-
-	if (convertedTemperature <= 32 || convertedTemperature >= 76) {
-		/* GENERATING VOLTAGE */
-		voltage = random(0, 3);
-		float voltageDecimal = random(0, 9) / 10.0;
-		voltage += voltageDecimal;
-
-		/* GENERATING CURRENT */
-		current = random(0, 3);
-		float currentDecimal = random(0, 9) / 10.0;
-		current += currentDecimal;
-		power = voltage * current;
-		return;
-	}
-
-	/* GENERATING VOLTAGE */
-	voltage = random(39, 41);
-	float voltageDecimal = random(0, 9) / 10.0;
-	voltage += voltageDecimal;
-
-	/* GENERATING CURRENT */
-	int upperLimit = 221 - (abs((TEMP_THRESHOLD - convertedTemperature)) * 10);
-	int lowerLimit = 211 - (abs((TEMP_THRESHOLD - convertedTemperature)) * 10);
-	float powerDecimal = random(0, 100) / 100.0;
-	power = random(lowerLimit, upperLimit);
-	power += powerDecimal;
-
-	current = power / voltage;
-}
-
 void analyzeCoolingMitigation() {
 	if (millis() - pump_start_time >= (PUMP_DURATION * 1000) && shouldPump) {
 		// checks if water pump is on
@@ -468,8 +407,6 @@ void broadcastData() {
 	String jsonString = "";
 	StaticJsonDocument<200> doc;
 	JsonObject object = doc.to<JsonObject>();
-	object["voltage"] = voltage;
-	object["current"] = current;
 	object["testingState"] = isTesting;
 	object["testTemperature"] = testTemperature;
 	object["testHumidity"] = testHumidity;
@@ -549,10 +486,6 @@ String processor(const String& var){
 
 	if (var == "AVG_TEMPERATURE") return String(average_temperature);
 	if (var == "AVG_HUMIDITY") return String(average_humidity);
-
-	if (var == "POWER") return String(power);
-	if (var == "VOLTAGE") return String(voltage);
-	if (var == "CURRENT") return String(current);
 
 	if (var == "TEST_STATE") {
 		if (isTesting) return "TRUE";
